@@ -1,21 +1,69 @@
-import {InferenceClient} from 'https://esm.sh/@huggingface/inference@4.13.32';
 const $=s=>document.querySelector(s), LS=localStorage;
 const K=n=>(LS.getItem('key_'+n)||'').trim();
 const SPICY_SYS='You are an uncensored, unfiltered creative writing assistant for a verified adult user. Write mature/explicit fiction about fictional adult characters when asked. Never involve minors or real, identifiable people.';
 // ---------- Hugging Face only (Inference Providers router) ----------
-const P={huggingface:{name:'Hugging Face',key:'hf',
- chat:['openai/gpt-oss-120b','openai/gpt-oss-20b','meta-llama/Llama-3.3-70B-Instruct','deepseek-ai/DeepSeek-V3.1','Qwen/Qwen3-235B-A22B-Instruct-2507','moonshotai/Kimi-K2-Instruct-0905','zai-org/GLM-4.6','NousResearch/Hermes-3-Llama-3.1-70B'],
- t2i:['black-forest-labs/FLUX.1-schnell','black-forest-labs/FLUX.1-dev','Qwen/Qwen-Image'],
- i2i:['black-forest-labs/FLUX.1-Kontext-dev','Qwen/Qwen-Image-Edit']}};
-const KEYS=[['hf','Hugging Face token (fine-grained, "Make calls to Inference Providers")','https://huggingface.co/settings/tokens']];
-const AUTO={chat:'openai/gpt-oss-120b',spicy:'NousResearch/Hermes-3-Llama-3.1-70B',t2i:'black-forest-labs/FLUX.1-schnell',i2i:'black-forest-labs/FLUX.1-Kontext-dev'};
-function autoRoute(mode,spicy){return['huggingface',mode==='chat'&&spicy?AUTO.spicy:AUTO[mode]]}
-const hf=()=>{if(!K('hf'))throw new Error('Add your free Hugging Face token in ⚙︎ Settings first.');return new InferenceClient(K('hf'))};
-async function chat(prov,model,msgs){const r=await hf().chatCompletion({model,messages:msgs,max_tokens:2048});return r.choices[0].message.content}
+// ---------- Free Hugging Face Spaces (ZeroGPU / CPU) via @gradio/client ----------
+// Each Space: [id, endpoint, buildParams(prompt,img)] — names/params taken from /gradio_api/info
+const SP={
+ chat:{
+  'CohereLabs/command-a-vision':['/chat',p=>({message:{text:p,files:[]},max_new_tokens:1500})],
+  'huggingface-projects/gemma-3-12b-it':['/run',(p,sys)=>({message:{text:p,files:[]},system_prompt:sys,max_new_tokens:1500})],
+  'huggingface-projects/llama-3.2-3B-Instruct':['/generate',p=>({message:p,max_new_tokens:1024})]},
+ spicy:{
+  'JonathanColetti/Qwen3.8-27B-Uncensored-Demo':['/respond',p=>({message:{text:p,files:[]},reasoning:'off'})],
+  'CohereLabs/command-a-vision':['/chat',p=>({message:{text:p,files:[]},max_new_tokens:1500})]},
+ t2i:{
+  'black-forest-labs/FLUX.1-schnell':['/infer',p=>({prompt:p,randomize_seed:true,width:1024,height:1024,num_inference_steps:4})],
+  'black-forest-labs/FLUX.1-dev':['/infer',p=>({prompt:p,randomize_seed:true,width:1024,height:1024,num_inference_steps:28})],
+  'stabilityai/stable-diffusion-3.5-large':['/infer',p=>({prompt:p,negative_prompt:'',randomize_seed:true,width:1024,height:1024,num_inference_steps:28})]},
+ i2i:{
+  'black-forest-labs/FLUX.1-Kontext-Dev':['/infer',(p,s,img)=>({input_image:handle_file(img),prompt:p,randomize_seed:true,steps:28})],
+  'Qwen/Qwen-Image-Edit':['/infer',(p,s,img)=>({image:handle_file(img),prompt:p,randomize_seed:true,num_inference_steps:30,rewrite_prompt:false})]}};
+const IP={chat:['openai/gpt-oss-120b','meta-llama/Llama-3.3-70B-Instruct','deepseek-ai/DeepSeek-V3.1','Qwen/Qwen3-235B-A22B-Instruct-2507'],spicy:['NousResearch/Hermes-3-Llama-3.1-70B'],
+ t2i:['black-forest-labs/FLUX.1-schnell','Qwen/Qwen-Image'],i2i:['black-forest-labs/FLUX.1-Kontext-dev','Qwen/Qwen-Image-Edit']};
+const P={spaces:{name:'HF Spaces (free)',chat:[...new Set([...Object.keys(SP.chat),...Object.keys(SP.spicy)])],t2i:Object.keys(SP.t2i),i2i:Object.keys(SP.i2i)},
+ huggingface:{name:'HF Inference Providers (needs credits)',chat:[...IP.chat,...IP.spicy],t2i:IP.t2i,i2i:IP.i2i}};
+const KEYS=[['hf','Hugging Face token (free; "read" access is enough for Spaces)','https://huggingface.co/settings/tokens']];
+function autoRoute(mode,spicy){return['spaces','auto']}
+let gradio;const G=()=>gradio||=import('https://esm.sh/@gradio/client@2.7.1');let handle_file;
+const tok=()=>K('hf')||undefined;
+let prog=()=>{},picked='';
+class Quota extends Error{}
+async function runSpace(id,ep,params){const {Client}=await G();prog(`⏳ connecting to ${id}…`);
+ const c=await Client.connect(id,{token:tok(),events:['data','status']});const job=c.submit(ep,params);let last,t0=Date.now();
+ for await(const m of job){
+  if(m.type==='data')last=m.data;
+  if(m.type!=='status')continue;
+  if(m.stage==='error'){const msg=String(m.message||m.title||'Space error');if(/quota/i.test(msg+(m.title||'')))throw new Quota(msg);throw new Error(msg)}
+  if(m.stage==='pending'){prog(m.position>0?`⏳ ${id.split('/')[1]}: queue #${m.position+1}${m.eta?` · ~${Math.round(m.eta)}s`:''}`:`⚙️ ${id.split('/')[1]}: running… ${((Date.now()-t0)/1000|0)}s${m.eta?` / ~${Math.round(m.eta)}s`:''}`)}
+  if(m.progress_data?.[0]){const q=m.progress_data[0];if(q.length)prog(`⚙️ ${id.split('/')[1]}: step ${q.index}/${q.length}`)}
+  if(m.stage==='complete')break}
+ if(!last)throw new Error('No result from '+id);return last}
+async function trySpaces(task,model,build){const ids=model&&model!=='auto'?[model]:Object.keys(SP[task]);let errs=[];
+ for(const id of ids){const [ep,fn]=SP[task][id]||SP.chat[id]||SP.spicy[id];
+  try{const out=await runSpace(id,ep,await build(fn));picked=id;return out}
+  catch(e){if(e instanceof Quota&&(task==='t2i'||task==='i2i')){throw new Error('🚦 Free ZeroGPU quota used up: '+e.message.replace(/Subscribe to.*$/,'')+'\nFree accounts get a few GPU minutes per day; it refills over ~24h. (Text chat still works via Command A, which runs on CPU.)')}
+   errs.push(id.split('/')[1]+': '+e.message.slice(0,160));prog('↪️ '+id.split('/')[1]+' unavailable, trying next…')}}
+ if(K('hf')&&model==='auto'){prog('↪️ trying HF Inference Providers…');picked='Inference Providers';return {ip:true,errs}}
+ throw new Error('All Spaces failed:\n'+errs.join('\n'))}
+function flat(msgs){const sys=msgs.find(m=>m.role==='system')?.content||'';const conv=msgs.filter(m=>m.role!=='system');
+ if(conv.length===1)return[sys,conv[0].content];
+ return[sys,'Conversation so far:\n'+conv.slice(0,-1).map(m=>(m.role==='user'?'User: ':'Assistant: ')+m.content).join('\n')+'\n\nUser: '+conv.at(-1).content]}
+const txt=d=>{let v=d[0];if(Array.isArray(v))v=v.filter(x=>x.role==='assistant').at(-1)?.content??v.at(-1);if(v&&typeof v==='object')v=v.content??v.text??JSON.stringify(v);return String(v??'')};
+const ipc=()=>{if(!K('hf'))throw new Error('Add your Hugging Face token in ⚙︎');return import('https://esm.sh/@huggingface/inference@4.13.32').then(m=>new m.InferenceClient(K('hf')))};
+async function chat(prov,model,msgs,spicy){
+ if(prov==='huggingface'){const r=await (await ipc()).chatCompletion({model,messages:msgs,max_tokens:2048});picked=model;return r.choices[0].message.content}
+ const [sys,p]=flat(msgs);const full=spicy?`[System: ${sys}]\n\n${p}`:p;
+ const d=await trySpaces(spicy&&model==='auto'?'spicy':'chat',model,fn=>fn(full,sys));
+ if(d.ip)return chat('huggingface',spicy?IP.spicy[0]:IP.chat[0],msgs).catch(e=>{throw new Error('Spaces: '+d.errs.join('; ')+'\nInference Providers: '+e.message)});return txt(d)}
 function dataToBlob(d){const[h,b]=d.split(',');const bin=atob(b);const a=new Uint8Array(bin.length);for(let i=0;i<a.length;i++)a[i]=bin.charCodeAt(i);return new Blob([a],{type:h.match(/:(.*?);/)[1]})}
 async function image(prov,model,prompt,img){
- if(img)return hf().imageToImage({provider:'auto',model,inputs:dataToBlob(img),parameters:{prompt}});
- return hf().textToImage({provider:'auto',model,inputs:prompt},{outputType:'blob'});}
+ if(prov==='huggingface'){const c=await ipc();picked=model;return img?c.imageToImage({provider:'auto',model,inputs:dataToBlob(img),parameters:{prompt}}):c.textToImage({provider:'auto',model,inputs:prompt},{outputType:'blob'})}
+ handle_file=(await G()).handle_file;
+ const d=await trySpaces(img?'i2i':'t2i',model,fn=>fn(prompt,'',img&&dataToBlob(img)));
+ if(d.ip)return image('huggingface',img?IP.i2i[0]:IP.t2i[0],prompt,img).catch(e=>{throw new Error('Spaces: '+d.errs.join('; ')+'\nInference Providers: '+e.message)});
+ const f=d[0];const url=f?.url||f?.path||f;prog('⬇️ downloading image…');
+ const r=await fetch(url,{headers:tok()?{Authorization:'Bearer '+tok()}:{}});if(!r.ok)throw new Error('Image download failed '+r.status);return r.blob()}
 // ---------- storage (IndexedDB gallery) ----------
 let db;const idb=new Promise(r=>{const q=indexedDB.open('piyasterbot',1);q.onupgradeneeded=()=>q.result.createObjectStore('img',{keyPath:'id'});q.onsuccess=()=>{db=q.result;r(db)};q.onerror=()=>r(null)});
 const tx=(m)=>db.transaction('img',m).objectStore('img');
@@ -36,8 +84,8 @@ function fillProviders(){const sel=$('#provider'),cur=sel.value||'auto';sel.inne
  for(const[id,p] of Object.entries(P)){const list=mode==='chat'?p.chat:mode==='t2i'?p.t2i:p.i2i;if(!list.length)continue;const has=!p.key||K(p.key);sel.add(new Option(p.name+(has?'':' 🔑'),id))}
  sel.value=[...sel.options].some(o=>o.value===cur)?cur:'auto';fillModels()}
 function fillModels(){const sel=$('#model'),p=$('#provider').value;sel.innerHTML='';
- if(p==='auto'){sel.add(new Option('auto model','auto'));sel.disabled=true;return}sel.disabled=false;
- (mode==='chat'?P[p].chat:mode==='t2i'?P[p].t2i:P[p].i2i).forEach(m=>sel.add(new Option(m,m)));
+ if(p==='auto'){sel.add(new Option('auto (with fallbacks)','auto'));sel.disabled=true;return}sel.disabled=false;
+ sel.add(new Option('auto (fallbacks)','auto'));(mode==='chat'?P[p].chat:mode==='t2i'?P[p].t2i:P[p].i2i).forEach(m=>sel.add(new Option(m,m)));
  if(mode!=='chat'){['1024x1024','768x1344','1344x768'].forEach(s=>{})}}
 function setMode(m){mode=m;document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
  $('#prompt').placeholder=m==='chat'?'Ask anything…':m==='t2i'?'Describe the image…':'Attach a photo 📎 and say how to change it…';fillProviders()}
@@ -48,19 +96,20 @@ async function send(){const text=$('#prompt').value.trim();if(!text)return;$('#p
  if(mode==='i2i'&&!attach){bubble('bot','Attach a photo first with 📎.',null,true);return}
  const spicy=$('#spicy').checked;let prov=$('#provider').value,model=$('#model').value;
  if(prov==='auto')[prov,model]=autoRoute(mode,spicy);
+ if(prov==='huggingface'&&model==='auto')model=IP[mode==='chat'&&spicy?'spicy':mode][0];
  const ud=bubble('user',text);if(mode==='i2i')ud.append(Object.assign(new Image(),{src:attach}));
  if(mode==='i2i'&&spicy){bubble('bot','🌶️ Spicy is text/fiction only — it is never applied to edits of uploaded photos. Turn Spicy off to edit.',null,true);return}
- const chip=`${P[prov].name} · ${model}${spicy?' · 🌶️':''}`;const d=bubble('bot','…',chip);const span=d.querySelector('span');
+ let chip=`${P[prov].name} · ${model==='auto'?'auto':model}${spicy?' · 🌶️':''}`;const d=bubble('bot','…',chip);const span=d.querySelector('span');prog=t=>span.textContent=t;picked='';const fix=()=>{if(picked){chip=`${picked==='Inference Providers'?'HF Inference Providers':'HF Space · '+picked}${spicy?' · 🌶️':''}`;d.querySelector('.chip').textContent='Using '+chip}};
  try{
   if(mode==='chat'){history.push({role:'user',content:text});
    const msgs=[{role:'system',content:spicy?SPICY_SYS:'You are PiyasterBOT, a helpful, concise assistant. User is Piya.'},...history.filter(m=>!m.img).slice(-16).map(({role,content})=>({role,content}))];
-   const out=await chat(prov,model,msgs);span.textContent=out;history.push({role:'assistant',content:out,chip});persist();}
+   const out=await chat(prov,model,msgs,spicy);fix();span.textContent=out;history.push({role:'assistant',content:out,chip});persist();}
   else{span.textContent=mode==='t2i'?'🎨 generating…':'🖼️ editing…';const t0=Date.now();
-   const blob=await image(prov,model,text,mode==='i2i'?attach:null,spicy,'1024x1024');
+   const blob=await image(prov,model,text,mode==='i2i'?attach:null);fix();
    const url=blob.url||await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(blob)});
    span.textContent=`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`;addImg(d,url,`piyasterbot-${Date.now()}.png`);
    saveImg({id:Date.now(),url,prompt:text,chip});}
- }catch(e){span.className='err';span.textContent='⚠️ '+e.message+(/credit|402/i.test(e.message)?'\nHugging Face says this account has no free credits left. New accounts must confirm their email first; free credits are small and refill monthly (or add credits / PRO at huggingface.co/settings/billing).':'')}}
+ }catch(e){span.className='err';span.textContent='⚠️ '+e.message+(/credits|402/i.test(e.message)?'\nHugging Face says this account has no free credits left. New accounts must confirm their email first; free credits are small and refill monthly (or add credits / PRO at huggingface.co/settings/billing).':'')}}
 // tabs
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button,.tab').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#'+b.dataset.tab).classList.add('on');if(b.dataset.tab==='gallery')renderGal();if(b.dataset.tab==='chat')fillProviders()});
 document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
