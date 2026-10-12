@@ -40,9 +40,9 @@ async function j(url,opt){const r=await fetch(url,opt);const t=await r.text();if
 async function blobOk(r){if(!r.ok)throw new Error(r.status+': '+(await r.text()).slice(0,300));return await r.blob()}
 const bear=k=>k?{Authorization:'Bearer '+k}:{};
 async function chat(prov,model,msgs){msgs=[...msgs];
- let oa=(url,key,extra={})=>j(url,{method:'POST',headers:{'content-type':'application/json',...bear(key),...extra},body:JSON.stringify({model,messages:msgs})}).then(d=>d.choices[0].message.content);
+ const oa=(url,key,extra={})=>j(url,{method:'POST',headers:{'content-type':'application/json',...bear(key),...extra},body:JSON.stringify({model,messages:msgs})}).then(d=>d.choices[0].message.content);
  switch(prov){
-  case'pollinations':return K('pollinations')?oa(PG+'/v1/chat/completions',K('pollinations')):oa('https://text.pollinations.ai/openai','');/* no key: legacy anonymous endpoint (gpt-oss-20b) */
+  case'pollinations':return K('pollinations')?oa(PG+'/v1/chat/completions',K('pollinations')):(model='openai',oa('https://text.pollinations.ai/openai',''));/* no key: legacy anonymous endpoint (gpt-oss-20b) */
   case'huggingface':return oa('https://router.huggingface.co/v1/chat/completions',K('hf'));
   case'groq':return oa('https://api.groq.com/openai/v1/chat/completions',K('groq'));
   case'gemini':return oa('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',K('gemini'));
