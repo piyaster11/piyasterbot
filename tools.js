@@ -1,13 +1,7 @@
 // [name,url,tip,savesMoney,inAppApi]
 window.TOOLS={
 "Built into PiyasterBOT (real APIs)":[
-["Pollinations","https://enter.pollinations.ai","Free chat + images with no key (flux, sana). A free key unlocks Kontext img2img, GPT-Image, uncensored-image-v2 and more. Nano Banana uses paid 'pollen' credits.",1,1],
-["Hugging Face","https://huggingface.co/settings/tokens","Free token (read + 'Inference Providers'). FLUX Schnell images + open chat models with free monthly credits.",1,1],
-["Google AI Studio (Gemini + Nano Banana)","https://aistudio.google.com/apikey","Free Gemini key. Chat free; Nano Banana image models may need billing on your key.",1,1],
-["Groq","https://console.groq.com/keys","Free, very fast Llama / Qwen / GPT-OSS chat.",1,1],
-["OpenRouter","https://openrouter.ai/keys","Many ':free' models (DeepSeek, Llama, Qwen, GPT-OSS) with one key; cheap GPT/Claude too.",1,1],
-["OpenAI (ChatGPT API)","https://platform.openai.com/api-keys","Pay-per-use, usually far cheaper than a $20/mo subscription for light use.",1,1],
-["Anthropic (Claude API)","https://console.anthropic.com/settings/keys","Pay-per-use Claude; cheaper than Pro for light use.",1,1]],
+["Hugging Face","https://huggingface.co/settings/tokens","The only engine here. One free token runs chat (GPT-OSS, Llama, DeepSeek, Qwen, Hermes), FLUX / Qwen-Image text→image and FLUX Kontext / Qwen-Image-Edit photo edits via HF Inference Providers. Free accounts get small monthly credits.",1,1]],
 "Image":[
 ["Raphael","https://raphael.app","Free unlimited image gen, no sign-up.",1],["Krea","https://krea.ai","Real-time drawing → image; daily free credits.",1],
 ["Magnific","https://magnific.ai","Upscaler (paid). Free alt: Upscayl or HF upscaler Spaces.",0],["Clipdrop","https://clipdrop.co","Background removal / relight; limited free.",1],
