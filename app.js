@@ -13,21 +13,43 @@ const SP={
   'JonathanColetti/Qwen3.8-27B-Uncensored-Demo':['/respond',p=>({message:{text:p,files:[]},reasoning:'off'})],
   'CohereLabs/command-a-vision':['/chat',p=>({message:{text:p,files:[]},max_new_tokens:1500})]},
  t2i:{
-  'black-forest-labs/FLUX.1-schnell':['/infer',p=>({prompt:p,randomize_seed:true,width:1024,height:1024,num_inference_steps:4})],
-  'black-forest-labs/FLUX.1-dev':['/infer',p=>({prompt:p,randomize_seed:true,width:1024,height:1024,num_inference_steps:28})],
-  'stabilityai/stable-diffusion-3.5-large':['/infer',p=>({prompt:p,negative_prompt:'',randomize_seed:true,width:1024,height:1024,num_inference_steps:28})]},
+  'black-forest-labs/FLUX.1-Krea-dev':['/infer',(p,o)=>({prompt:p,randomize_seed:true,width:o.w,height:o.h,guidance_scale:4.5,num_inference_steps:28})],
+  'Qwen/Qwen-Image':['/infer',(p,o)=>({prompt:p,randomize_seed:true,aspect_ratio:o.ar,guidance_scale:4,num_inference_steps:40,prompt_enhance:false})],
+  'black-forest-labs/FLUX.2-dev':['/infer',(p,o)=>({prompt:p,input_images:[],randomize_seed:true,width:o.w,height:o.h,num_inference_steps:28,guidance_scale:4,prompt_upsampling:false})],
+  'Tongyi-MAI/Z-Image-Turbo':['/generate',(p,o)=>({prompt:p,resolution:o.zres,steps:9,random_seed:true})],
+  'black-forest-labs/FLUX.1-dev':['/infer',(p,o)=>({prompt:p,randomize_seed:true,width:o.w,height:o.h,num_inference_steps:28})],
+  'black-forest-labs/FLUX.1-schnell':['/infer',(p,o)=>({prompt:p,randomize_seed:true,width:o.w,height:o.h,num_inference_steps:4})]},
  i2i:{
-  'black-forest-labs/FLUX.1-Kontext-Dev':['/infer',(p,s,img)=>({input_image:handle_file(img),prompt:p,randomize_seed:true,steps:28})],
-  'Qwen/Qwen-Image-Edit':['/infer',(p,s,img)=>({image:handle_file(img),prompt:p,randomize_seed:true,num_inference_steps:30,rewrite_prompt:false})]}};
+  'Qwen/Qwen-Image-Edit-2511':['/infer',(p,o,img)=>({images:[{image:handle_file(img)}],prompt:p,randomize_seed:true,true_guidance_scale:4,num_inference_steps:40,rewrite_prompt:true})],
+  'black-forest-labs/FLUX.1-Kontext-Dev':['/infer',(p,o,img)=>({input_image:handle_file(img),prompt:p,randomize_seed:true,steps:28})],
+  'Qwen/Qwen-Image-Edit':['/infer',(p,o,img)=>({image:handle_file(img),prompt:p,randomize_seed:true,num_inference_steps:30,rewrite_prompt:false})]}};
+// ---------- Auto intent routing (best model first, then fallbacks) ----------
+const ROUTE={photo:['black-forest-labs/FLUX.1-Krea-dev','Tongyi-MAI/Z-Image-Turbo','black-forest-labs/FLUX.2-dev','black-forest-labs/FLUX.1-dev'],
+ text:['Qwen/Qwen-Image','black-forest-labs/FLUX.2-dev','Tongyi-MAI/Z-Image-Turbo'],
+ art:['black-forest-labs/FLUX.2-dev','Qwen/Qwen-Image','black-forest-labs/FLUX.1-dev'],
+ product:['black-forest-labs/FLUX.2-dev','black-forest-labs/FLUX.1-Krea-dev','Tongyi-MAI/Z-Image-Turbo'],
+ general:['Tongyi-MAI/Z-Image-Turbo','black-forest-labs/FLUX.1-Krea-dev','black-forest-labs/FLUX.1-dev','black-forest-labs/FLUX.1-schnell']};
+function intent(p){const t=p.toLowerCase();
+ if(/[\u0E00-\u0E7F]|["“].+["”]|\b(poster|logo|text|headline|banner|flyer|ad\b|advert|typograph|sign|label|menu|caption|cta)/.test(t))return'text';
+ if(/\b(anime|manga|cartoon|illustration|painting|watercolor|pixel art|3d render|ghibli|comic|fantasy art|chibi|sketch)/.test(t))return'art';
+ if(/\b(product|packshot|bottle|packaging|studio shot|e-?commerce|on white background|mockup)/.test(t))return'product';
+ if(/\b(photo|portrait|realistic|photoreal|selfie|headshot|cinematic|35mm|dslr|woman|man|person|people|street)/.test(t))return'photo';
+ return'general'}
+const AR={'1:1':[1024,1024,'1024x1024 ( 1:1 )'],'9:16':[768,1344,'720x1280 ( 9:16 )'],'16:9':[1344,768,'1280x720 ( 16:9 )'],'3:4':[896,1152,'864x1152 ( 3:4 )'],'4:3':[1152,896,'1152x864 ( 4:3 )'],'2:3':[832,1248,'832x1248 ( 2:3 )'],'3:2':[1248,832,'1248x832 ( 3:2 )']};
+function aspect(p,kind){const t=p.toLowerCase();let m=t.match(/\b(1:1|9:16|16:9|3:4|4:3|2:3|3:2)\b/);let ar=m?m[1]:
+ /\b(story|stories|reel|tiktok|phone wallpaper|vertical)\b/.test(t)?'9:16':/\b(portrait|poster|pin)\b/.test(t)?'3:4':/\b(landscape|wide|banner|youtube|thumbnail|cinematic)\b/.test(t)?'16:9':/\b(square|instagram|post)\b/.test(t)?'1:1':kind==='photo'?'2:3':'1:1';
+ const [w,h,zres]=AR[ar];return{ar,w,h,zres}}
+async function enhance(p){if(p.length>180||LS.enhance==='0')return p;
+ try{const d=await runSpace('CohereLabs/command-a-vision','/chat',{message:{text:'Rewrite this image prompt into one detailed, vivid prompt (subject, setting, lighting, lens/style, composition) under 70 words. Keep any quoted or non-English text EXACTLY as written. Output only the prompt.\n\nPrompt: '+p,files:[]},max_new_tokens:200});const o=txt(d).trim().replace(/^["“]|["”]$/g,'');return o.length>20?o:p}catch{return p}}
 const IP={chat:['openai/gpt-oss-120b','meta-llama/Llama-3.3-70B-Instruct','deepseek-ai/DeepSeek-V3.1','Qwen/Qwen3-235B-A22B-Instruct-2507'],spicy:['NousResearch/Hermes-3-Llama-3.1-70B'],
- t2i:['black-forest-labs/FLUX.1-schnell','Qwen/Qwen-Image'],i2i:['black-forest-labs/FLUX.1-Kontext-dev','Qwen/Qwen-Image-Edit']};
+ t2i:['black-forest-labs/FLUX.1-Krea-dev','Qwen/Qwen-Image','black-forest-labs/FLUX.2-dev','Tongyi-MAI/Z-Image-Turbo','tencent/HunyuanImage-2.1','HiDream-ai/HiDream-I1-Full'],i2i:['Qwen/Qwen-Image-Edit-2511','black-forest-labs/FLUX.1-Kontext-dev']};
 const P={spaces:{name:'HF Spaces (free)',chat:[...new Set([...Object.keys(SP.chat),...Object.keys(SP.spicy)])],t2i:Object.keys(SP.t2i),i2i:Object.keys(SP.i2i)},
  huggingface:{name:'HF Inference Providers (needs credits)',chat:[...IP.chat,...IP.spicy],t2i:IP.t2i,i2i:IP.i2i}};
 const KEYS=[['hf','Hugging Face token (free; "read" access is enough for Spaces)','https://huggingface.co/settings/tokens']];
 function autoRoute(mode,spicy){return['spaces','auto']}
 let gradio;const G=()=>gradio||=import('https://esm.sh/@gradio/client@2.7.1');let handle_file;
 const tok=()=>K('hf')||undefined;
-let prog=()=>{},picked='';
+let prog=()=>{},note=()=>{},picked='';
 class Quota extends Error{}
 async function runSpace(id,ep,params){const {Client}=await G();prog(`⏳ connecting to ${id}…`);
  const c=await Client.connect(id,{token:tok(),events:['data','status']});const job=c.submit(ep,params);let last,t0=Date.now();
@@ -39,10 +61,10 @@ async function runSpace(id,ep,params){const {Client}=await G();prog(`⏳ connect
   if(m.progress_data?.[0]){const q=m.progress_data[0];if(q.length)prog(`⚙️ ${id.split('/')[1]}: step ${q.index}/${q.length}`)}
   if(m.stage==='complete')break}
  if(!last)throw new Error('No result from '+id);return last}
-async function trySpaces(task,model,build){const ids=model&&model!=='auto'?[model]:Object.keys(SP[task]);let errs=[];
+async function trySpaces(task,model,build,order){const ids=model&&model!=='auto'?[model]:(order||Object.keys(SP[task]));let errs=[];
  for(const id of ids){const [ep,fn]=SP[task][id]||SP.chat[id]||SP.spicy[id];
   try{const out=await runSpace(id,ep,await build(fn));picked=id;return out}
-  catch(e){if(e instanceof Quota&&(task==='t2i'||task==='i2i')){throw new Error('🚦 Free ZeroGPU quota used up: '+e.message.replace(/Subscribe to.*$/,'')+'\nFree accounts get a few GPU minutes per day; it refills over ~24h. (Text chat still works via Command A, which runs on CPU.)')}
+  catch(e){if(e instanceof Quota&&(task==='t2i'||task==='i2i')){errs.push('🚦 ZeroGPU quota: '+e.message.replace(/Subscribe to.*$/,'').trim());break}
    errs.push(id.split('/')[1]+': '+e.message.slice(0,160));prog('↪️ '+id.split('/')[1]+' unavailable, trying next…')}}
  if(K('hf')&&model==='auto'){prog('↪️ trying HF Inference Providers…');picked='Inference Providers';return {ip:true,errs}}
  throw new Error('All Spaces failed:\n'+errs.join('\n'))}
@@ -60,9 +82,12 @@ function dataToBlob(d){const[h,b]=d.split(',');const bin=atob(b);const a=new Uin
 async function image(prov,model,prompt,img){
  if(prov==='huggingface'){const c=await ipc();picked=model;return img?c.imageToImage({provider:'auto',model,inputs:dataToBlob(img),parameters:{prompt}}):c.textToImage({provider:'auto',model,inputs:prompt},{outputType:'blob'})}
  handle_file=(await G()).handle_file;
- const d=await trySpaces(img?'i2i':'t2i',model,fn=>fn(prompt,'',img&&dataToBlob(img)));
- if(d.ip)return image('huggingface',img?IP.i2i[0]:IP.t2i[0],prompt,img).catch(e=>{throw new Error('Spaces: '+d.errs.join('; ')+'\nInference Providers: '+e.message)});
- const f=d[0];const url=f?.url||f?.path||f;prog('⬇️ downloading image…');
+ let kind=img?'edit':intent(prompt),o=aspect(prompt,kind),p2=prompt;
+ if(!img&&model==='auto'){prog('✍️ enhancing prompt…');p2=await enhance(prompt);if(p2!==prompt)note('✨ Enhanced prompt: '+p2)}
+ note(`🧭 intent: ${kind} · ${o.ar}`);
+ const d=await trySpaces(img?'i2i':'t2i',model,fn=>fn(p2,o,img&&dataToBlob(img)),img?null:ROUTE[kind]);
+ if(d.ip)return image('huggingface',img?'Qwen/Qwen-Image-Edit-2511':ROUTE[kind][0],p2,img).catch(e=>{throw new Error('Spaces: '+d.errs.join('; ')+'\nInference Providers: '+e.message)});
+ let f=d[0];if(Array.isArray(f))f=f[0]?.image||f[0];const url=f?.url||f?.path||f;prog('⬇️ downloading image…');
  const r=await fetch(url,{headers:tok()?{Authorization:'Bearer '+tok()}:{}});if(!r.ok)throw new Error('Image download failed '+r.status);return r.blob()}
 // ---------- storage (IndexedDB gallery) ----------
 let db;const idb=new Promise(r=>{const q=indexedDB.open('piyasterbot',1);q.onupgradeneeded=()=>q.result.createObjectStore('img',{keyPath:'id'});q.onsuccess=()=>{db=q.result;r(db)};q.onerror=()=>r(null)});
@@ -99,7 +124,7 @@ async function send(){const text=$('#prompt').value.trim();if(!text)return;$('#p
  if(prov==='huggingface'&&model==='auto')model=IP[mode==='chat'&&spicy?'spicy':mode][0];
  const ud=bubble('user',text);if(mode==='i2i')ud.append(Object.assign(new Image(),{src:attach}));
  if(mode==='i2i'&&spicy){bubble('bot','🌶️ Spicy is text/fiction only — it is never applied to edits of uploaded photos. Turn Spicy off to edit.',null,true);return}
- let chip=`${P[prov].name} · ${model==='auto'?'auto':model}${spicy?' · 🌶️':''}`;const d=bubble('bot','…',chip);const span=d.querySelector('span');prog=t=>span.textContent=t;picked='';const fix=()=>{if(picked){chip=`${picked==='Inference Providers'?'HF Inference Providers':'HF Space · '+picked}${spicy?' · 🌶️':''}`;d.querySelector('.chip').textContent='Using '+chip}};
+ let chip=`${P[prov].name} · ${model==='auto'?'auto':model}${spicy?' · 🌶️':''}`;const d=bubble('bot','…',chip);const span=d.querySelector('span');prog=t=>span.textContent=t;note=t=>{const n=document.createElement('div');n.className='chip';n.style.whiteSpace='normal';n.style.display='block';n.style.margin='4px 0';n.textContent=t;span.before(n)};picked='';const fix=()=>{if(picked){chip=`${picked==='Inference Providers'?'HF Inference Providers':'HF Space · '+picked}${spicy?' · 🌶️':''}`;d.querySelector('.chip').textContent='Using '+chip}};
  try{
   if(mode==='chat'){history.push({role:'user',content:text});
    const msgs=[{role:'system',content:spicy?SPICY_SYS:'You are PiyasterBOT, a helpful, concise assistant. User is Piya.'},...history.filter(m=>!m.img).slice(-16).map(({role,content})=>({role,content}))];
