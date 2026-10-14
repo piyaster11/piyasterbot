@@ -15,20 +15,20 @@ const SP={
  t2i:{
   'black-forest-labs/FLUX.1-Krea-dev':['/infer',(p,o)=>({prompt:p,randomize_seed:true,width:o.w,height:o.h,guidance_scale:4.5,num_inference_steps:28})],
   'Qwen/Qwen-Image':['/infer',(p,o)=>({prompt:p,randomize_seed:true,aspect_ratio:o.ar,guidance_scale:4,num_inference_steps:40,prompt_enhance:false})],
-  'black-forest-labs/FLUX.2-dev':['/infer',(p,o)=>({prompt:p,input_images:[],randomize_seed:true,width:o.w,height:o.h,num_inference_steps:28,guidance_scale:4,prompt_upsampling:false})],
+  'black-forest-labs/FLUX.2-dev':['/infer',(p,o)=>({prompt:p,input_images:[],randomize_seed:true,width:o.w2,height:o.h2,num_inference_steps:28,guidance_scale:4,prompt_upsampling:false})],
   'Tongyi-MAI/Z-Image-Turbo':['/generate',(p,o)=>({prompt:p,resolution:o.zres,steps:9,random_seed:true})],
   'black-forest-labs/FLUX.1-dev':['/infer',(p,o)=>({prompt:p,randomize_seed:true,width:o.w,height:o.h,num_inference_steps:28})],
   'black-forest-labs/FLUX.1-schnell':['/infer',(p,o)=>({prompt:p,randomize_seed:true,width:o.w,height:o.h,num_inference_steps:4})]},
  i2i:{
-  'Qwen/Qwen-Image-Edit-2511':['/infer',(p,o,img)=>({images:[{image:handle_file(img)}],prompt:p,randomize_seed:true,true_guidance_scale:4,num_inference_steps:40,rewrite_prompt:true})],
   'black-forest-labs/FLUX.1-Kontext-Dev':['/infer',(p,o,img)=>({input_image:handle_file(img),prompt:p,randomize_seed:true,steps:28})],
+  'Qwen/Qwen-Image-Edit-2511':['/infer',(p,o,img)=>({images:[{image:handle_file(img)}],prompt:p,randomize_seed:true,true_guidance_scale:4,num_inference_steps:40,rewrite_prompt:true})],
   'Qwen/Qwen-Image-Edit':['/infer',(p,o,img)=>({image:handle_file(img),prompt:p,randomize_seed:true,num_inference_steps:30,rewrite_prompt:false})]}};
 // ---------- Auto intent routing (best model first, then fallbacks) ----------
 const ROUTE={photo:['black-forest-labs/FLUX.1-Krea-dev','Tongyi-MAI/Z-Image-Turbo','black-forest-labs/FLUX.2-dev','black-forest-labs/FLUX.1-dev'],
- text:['Qwen/Qwen-Image','black-forest-labs/FLUX.2-dev','Tongyi-MAI/Z-Image-Turbo'],
- art:['black-forest-labs/FLUX.2-dev','Qwen/Qwen-Image','black-forest-labs/FLUX.1-dev'],
+ text:['black-forest-labs/FLUX.2-dev','ip:Qwen/Qwen-Image','Qwen/Qwen-Image','Tongyi-MAI/Z-Image-Turbo'],
+ art:['black-forest-labs/FLUX.2-dev','black-forest-labs/FLUX.1-dev','Tongyi-MAI/Z-Image-Turbo'],
  product:['black-forest-labs/FLUX.2-dev','black-forest-labs/FLUX.1-Krea-dev','Tongyi-MAI/Z-Image-Turbo'],
- general:['Tongyi-MAI/Z-Image-Turbo','black-forest-labs/FLUX.1-Krea-dev','black-forest-labs/FLUX.1-dev','black-forest-labs/FLUX.1-schnell']};
+ general:['black-forest-labs/FLUX.2-dev','Tongyi-MAI/Z-Image-Turbo','black-forest-labs/FLUX.1-Krea-dev','black-forest-labs/FLUX.1-dev','black-forest-labs/FLUX.1-schnell']};
 function intent(p){const t=p.toLowerCase();
  if(/[\u0E00-\u0E7F]|["“].+["”]|\b(poster|logo|text|headline|banner|flyer|ad\b|advert|typograph|sign|label|menu|caption|cta)/.test(t))return'text';
  if(/\b(anime|manga|cartoon|illustration|painting|watercolor|pixel art|3d render|ghibli|comic|fantasy art|chibi|sketch)/.test(t))return'art';
@@ -38,7 +38,7 @@ function intent(p){const t=p.toLowerCase();
 const AR={'1:1':[1024,1024,'1024x1024 ( 1:1 )'],'9:16':[768,1344,'720x1280 ( 9:16 )'],'16:9':[1344,768,'1280x720 ( 16:9 )'],'3:4':[896,1152,'864x1152 ( 3:4 )'],'4:3':[1152,896,'1152x864 ( 4:3 )'],'2:3':[832,1248,'832x1248 ( 2:3 )'],'3:2':[1248,832,'1248x832 ( 3:2 )']};
 function aspect(p,kind){const t=p.toLowerCase();let m=t.match(/\b(1:1|9:16|16:9|3:4|4:3|2:3|3:2)\b/);let ar=m?m[1]:
  /\b(story|stories|reel|tiktok|phone wallpaper|vertical)\b/.test(t)?'9:16':/\b(portrait|poster|pin)\b/.test(t)?'3:4':/\b(landscape|wide|banner|youtube|thumbnail|cinematic)\b/.test(t)?'16:9':/\b(square|instagram|post)\b/.test(t)?'1:1':kind==='photo'?'2:3':'1:1';
- const [w,h,zres]=AR[ar];return{ar,w,h,zres}}
+ const [w,h,zres]=AR[ar];const k=Math.min(1,1024/Math.max(w,h));return{ar,w,h,zres,w2:Math.round(w*k/16)*16,h2:Math.round(h*k/16)*16}}
 async function enhance(p){if(p.length>180||LS.enhance==='0')return p;
  try{const d=await runSpace('CohereLabs/command-a-vision','/chat',{message:{text:'Rewrite this image prompt into one detailed, vivid prompt (subject, setting, lighting, lens/style, composition) under 70 words. Keep any quoted or non-English text EXACTLY as written. Output only the prompt.\n\nPrompt: '+p,files:[]},max_new_tokens:200});const o=txt(d).trim().replace(/^["“]|["”]$/g,'');return o.length>20?o:p}catch{return p}}
 const IP={chat:['openai/gpt-oss-120b','meta-llama/Llama-3.3-70B-Instruct','deepseek-ai/DeepSeek-V3.1','Qwen/Qwen3-235B-A22B-Instruct-2507'],spicy:['NousResearch/Hermes-3-Llama-3.1-70B'],
@@ -61,8 +61,12 @@ async function runSpace(id,ep,params){const {Client}=await G();prog(`⏳ connect
   if(m.progress_data?.[0]){const q=m.progress_data[0];if(q.length)prog(`⚙️ ${id.split('/')[1]}: step ${q.index}/${q.length}`)}
   if(m.stage==='complete')break}
  if(!last)throw new Error('No result from '+id);return last}
+const FAL={'Qwen/Qwen-Image':'fal-ai/qwen-image'};let ipArgs={};
+async function ipFal(model,_){const r=await fetch('https://router.huggingface.co/fal-ai/'+FAL[model],{method:'POST',headers:{Authorization:'Bearer '+K('hf'),'content-type':'application/json'},body:JSON.stringify({prompt:ipArgs.prompt,image_size:{width:ipArgs.w,height:ipArgs.h},num_inference_steps:40,sync_mode:true})});
+ const t=await r.text();if(!r.ok)throw new Error(r.status+' '+t.slice(0,160));const u=JSON.parse(t).images[0].url;return[{url:u}]}
 async function trySpaces(task,model,build,order){const ids=model&&model!=='auto'?[model]:(order||Object.keys(SP[task]));let errs=[];
- for(const id of ids){const [ep,fn]=SP[task][id]||SP.chat[id]||SP.spicy[id];
+ for(const id of ids){if(id.startsWith('ip:')){try{prog('💳 '+id.slice(3)+' via Inference Providers…');const out=await ipFal(id.slice(3),await build(()=>null));picked=id.slice(3)+' (credits)';return out}catch(e){errs.push(id+': '+e.message.slice(0,140));continue}}
+  const [ep,fn]=SP[task][id]||SP.chat[id]||SP.spicy[id];
   try{const out=await runSpace(id,ep,await build(fn));picked=id;return out}
   catch(e){if(e instanceof Quota&&(task==='t2i'||task==='i2i')){errs.push('🚦 ZeroGPU quota: '+e.message.replace(/Subscribe to.*$/,'').trim());break}
    errs.push(id.split('/')[1]+': '+e.message.slice(0,160));prog('↪️ '+id.split('/')[1]+' unavailable, trying next…')}}
@@ -84,11 +88,11 @@ async function image(prov,model,prompt,img){
  handle_file=(await G()).handle_file;
  let kind=img?'edit':intent(prompt),o=aspect(prompt,kind),p2=prompt;
  if(!img&&model==='auto'){prog('✍️ enhancing prompt…');p2=await enhance(prompt);if(p2!==prompt)note('✨ Enhanced prompt: '+p2)}
- note(`🧭 intent: ${kind} · ${o.ar}`);
+ note(`🧭 intent: ${kind} · ${o.ar}`);ipArgs={prompt:p2,w:o.w,h:o.h};
  const d=await trySpaces(img?'i2i':'t2i',model,fn=>fn(p2,o,img&&dataToBlob(img)),img?null:ROUTE[kind]);
  if(d.ip)return image('huggingface',img?'Qwen/Qwen-Image-Edit-2511':ROUTE[kind][0],p2,img).catch(e=>{throw new Error('Spaces: '+d.errs.join('; ')+'\nInference Providers: '+e.message)});
  let f=d[0];if(Array.isArray(f))f=f[0]?.image||f[0];const url=f?.url||f?.path||f;prog('⬇️ downloading image…');
- const r=await fetch(url,{headers:tok()?{Authorization:'Bearer '+tok()}:{}});if(!r.ok)throw new Error('Image download failed '+r.status);return r.blob()}
+ if(String(url).startsWith('data:'))return dataToBlob(url);const r=await fetch(url,{headers:tok()?{Authorization:'Bearer '+tok()}:{}});if(!r.ok)throw new Error('Image download failed '+r.status);return r.blob()}
 // ---------- storage (IndexedDB gallery) ----------
 let db;const idb=new Promise(r=>{const q=indexedDB.open('piyasterbot',1);q.onupgradeneeded=()=>q.result.createObjectStore('img',{keyPath:'id'});q.onsuccess=()=>{db=q.result;r(db)};q.onerror=()=>r(null)});
 const tx=(m)=>db.transaction('img',m).objectStore('img');
